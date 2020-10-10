@@ -1,0 +1,81 @@
+############
+# LIBRARIES
+############
+import json as simplejson
+import os
+import datetime as dt
+import path
+import gzip
+from joblib import Parallel, delayed
+import multiprocessing
+import pandas as pd
+import numpy as np
+
+
+os.chdir('/Users/samso/OneDrive - University of Denver/Data/ZST')
+
+codes = ['HK']  # Pass empty list if want global.  If want a specific country, put 2 letter code in, e.g. 'US'
+
+toplevel = ['coordinates', 'created_at', 'entities', 'filter_level', 'geo', 'id', 'id_str', 'in_reply_to_screen_name', 'in_reply_to_status_id', 'in_reply_to_status_id_str', 'in_reply_to_user_id', 'in_reply_to_user_id_str', 'lang', 'place', 'retweet_count', 'retweeted', 'source', 'text', 'user']  # Keys for tweet dictionary to keep
+
+
+
+def readData(analyze, codes, keys_keep):  # Day is day am interested in
+	tweets = []
+	for file in analyze:
+		with gzip.open(file, 'rt') as f:
+			print('On ', file)
+			try:
+				for line in f:
+					try:
+						line = line.replace('\n', '')
+						line = line.replace('\r', '')
+						line = line.replace('\t', '')
+						line = line.replace('\0', '')
+						tweet = simplejson.loads(line)
+						if 'place' in tweet.keys():
+							if tweet['place'] is not None:
+								if tweet['place']['country_code'] in codes:
+									print('match')
+									tweet = dict(zip(keys_keep, [tweet[k] for k in keys_keep]))  # Create dictionary of only keys I want.  https://stackoverflow.com/questions/3420122/filter-dict-to-contain-only-certain-keys
+									tweet = adjustTimezoneAndBox(tweet)  # Adjust the timezone
+									tweets.append(tweet)
+					except simplejson.JSONDecodeError:  # Sometimes, the JSON line doesn't end (unterminated string), so this handles that.  I put at this level so I can see it per tweet, see how common it is.
+						print('JSON decode error for', file)
+						pass
+
+			# I have all these to try to catch all errors and print them to file.  I hate running my script for a few hours and finding an exception that only applies to a couple of tweets, then having to run my script all over again.  The below structure should capture any foreseeable one; I think except Exception actually is enough.
+			# See: https://stackoverflow.com/questions/4990718/python-about-catching-any-exception
+			except OSError as error:
+				with open('subset/worldgeo_subset/worldgeo_ErrorsFromProcessingTweets.txt', 'a') as outfile:
+					outfile.write('Error is: ' + str(error) + ', File is: ' + str(file) + ', Line is: ' + str(line) + '\n')
+				pass
+
+			except IOError as error:
+				with open('subset/worldgeo_subset/worldgeo_ErrorsFromProcessingTweets.txt', 'a') as outfile:
+					outfile.write('Error is: ' + str(error) + ', File is: ' + str(file) + ', Line is: ' + str(line) + '\n')
+				pass
+
+			except ValueError as error:
+				with open('subset/worldgeo_subset/worldgeo_ErrorsFromProcessingTweets.txt', 'a') as outfile:
+					outfile.write('Error is: ' + str(error) + ', File is: ' + str(file) + ', Line is: ' + str(line) + '\n')
+				pass
+
+			except Exception as error:
+				with open('subset/worldgeo_subset/worldgeo_ErrorsFromProcessingTweets.txt', 'a') as outfile:
+					outfile.write('Error is: ' + str(error) + ', File is: ' + str(file) + ', Line is: ' + str(line) + '\n')
+				pass
+
+	# Make data frame if there were matching tweets.
+	if len(tweets) > 0:
+		tweets = pd.io.json.json_normalize(tweets)
+
+	else:
+		tweets = False  # Otherwise, return a flag of False
+
+	return tweets
+
+ 
+these = open('HK_2019-Jan-Oct.txt') #large text file of tweets
+tweet = readData(analyze=these, codes=codes, keys_keep=toplevel)
+
